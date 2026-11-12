@@ -4,6 +4,9 @@
 (function () {
   "use strict";
 
+  // Номер версії: той самий має стояти у version.json і в ?v= біля game.js в index.html
+  var VERSION = 3;
+
   // ---------- Світ ----------
   // Ширина світу стала, висота видимої частини залежить від екрана.
   // Вісь Y дивиться вниз: робот стартує на y = 0 і лізе у від'ємні значення.
@@ -111,7 +114,7 @@
     var h = -S.genY, d = clamp(h / 40000, 0, 1);
     var gap = S.row < 5 ? rnd(120, 160) : lerp(150, 215, d) + Math.random() * lerp(50, 55, d);
     S.genY -= gap; S.row++;
-    var y = S.genY, w = lerp(150, 114, d);
+    var y = S.genY, w = lerp(130, 102, d);
     var type = "n", r = Math.random();
     var pm = lerp(0.06, 0.36, d);
     var pf = (h > 1500 && !S.lastFragile) ? lerp(0.05, 0.2, d) : 0;
@@ -147,8 +150,9 @@
       S.items.push({ type: "vit", x: rnd(70, W - 70), y: y - 96, r: 30, ph: rnd(0, 6) });
     }
 
-    // вірус: збоку від головної полички, не над другою
-    if (h > 5000 && S.row - S.lastFoeRow > 3 && Math.random() < lerp(0.05, 0.16, d)) {
+    // вірус: збоку від головної полички, не над другою. Нерухомий стоїть щонайменше
+    // за 110 px від краю полички — смуга приземлення (край + 22 px) завжди вільна.
+    if (h > 2200 && S.row - S.lastFoeRow > 1 && Math.random() < lerp(0.18, 0.4, d)) {
       var fx = null;
       for (var t = 0; t < 8 && fx == null; t++) {
         var cf = rnd(60, W - 60);
@@ -931,6 +935,7 @@
     mode = "menu";
     show("over", false); show("pause", false); show("pauseBtn", false); show("start", true);
     syncUi();
+    checkUpdate();
   }
   function pauseGame() {
     if (mode !== "play") return;
@@ -959,6 +964,7 @@
     $("newBest").hidden = !isNew;
     show("pauseBtn", false);
     setTimeout(function () { if (mode === "over") { show("over", true); $("againBtn").focus(); } }, 380);
+    checkUpdate();
   }
 
   function setMuted(m) { muted = m; save("mute", m ? "1" : "0"); syncUi(); }
@@ -1066,9 +1072,38 @@
     requestAnimationFrame(frame);
   }
 
+  // ---------- Самооновлення ----------
+  // GitHub Pages дозволяє браузеру 10 хв тримати сторінку в кеші, а телефон ще й
+  // повертає вкладку з пам'яті взагалі без запиту — і показує стару гру. Тому гра
+  // сама питає маленький version.json повз кеш і, якщо на сайті новіша версія,
+  // перезавантажується за адресою з ?v=N: це новий ключ кешу, тож і сторінка,
+  // і скрипт беруться свіжі. Посеред партії не смикаємо — лише в меню й після кінця.
+  var lastCheck = 0;
+  function checkUpdate() {
+    if (location.protocol === "file:" || !window.fetch) return;
+    if (mode === "play" || mode === "pause") return;
+    var now = Date.now();
+    if (now - lastCheck < 20000) return;
+    lastCheck = now;
+    fetch("version.json?t=" + now, { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || !(j.v > VERSION) || mode === "play" || mode === "pause") return;
+        var u = new URL(location.href);
+        if (u.searchParams.get("v") === String(j.v)) return;   // уже пробували — по колу не ходимо
+        u.searchParams.set("v", j.v);
+        location.replace(u.toString());
+      })
+      .catch(function () { /* нема мережі — граємо в те, що є */ });
+  }
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) checkUpdate(); });
+  window.addEventListener("pageshow", checkUpdate);
+
+  $("ver").textContent = "версія " + VERSION;
   resize();
   reset();
   syncUi();
+  checkUpdate();
   requestAnimationFrame(frame);
 
   // Гачок для перевірки зі стенду: прогнати симуляцію без малювання
