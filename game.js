@@ -5,7 +5,7 @@
   "use strict";
 
   // Номер версії: той самий має стояти у version.json і в ?v= біля game.js в index.html
-  var VERSION = 6;
+  var VERSION = 7;
 
   // ---------- Світ ----------
   // Ширина світу стала, висота видимої частини залежить від екрана.
@@ -38,7 +38,6 @@
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
   function rnd(a, b) { return a + Math.random() * (b - a); }
-  function hash(i, j) { var s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); }
   // найкоротша різниця по X з урахуванням того, що світ замкнений у кільце
   function wrapDx(d) { d = ((d % W) + W) % W; return d > W / 2 ? d - W : d; }
 
@@ -76,7 +75,7 @@
     o.start(t); o.stop(t + dur + 0.03);
   }
   var sfx = {
-    jump: function () { tone("sine", 330, 560, 0.11, 0.5); },
+    jump: function () { tone("sine", 330, 560, 0.12, 0.8); tone("triangle", 660, 1120, 0.1, 0.22); },
     spring: function () { tone("triangle", 260, 1040, 0.24, 0.6); },
     pill: function () { tone("sine", 880, 880, 0.08, 0.4); tone("sine", 1320, 1320, 0.13, 0.4, 0.07); },
     boost: function () { tone("sawtooth", 180, 760, 0.5, 0.22); tone("sine", 520, 1560, 0.5, 0.3, 0.05); },
@@ -470,25 +469,108 @@
   function line(x0, y0, x1, y1) { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
 
   // ---------- Малювання: тло ----------
-  function drawBackdrop() {
-    // хрести аптеки пливуть повільніше за полички — відчуття висоти
-    var sp = 340, par = S.camY * 0.3;
-    var j0 = Math.floor(par / sp) - 1, j1 = Math.ceil((par + VH) / sp) + 1;
-    c.save();
-    c.globalAlpha = 0.075;
-    c.fillStyle = "#FFFFFF";
-    for (var j = j0; j <= j1; j++) {
-      for (var i = 0; i < 3; i++) {
-        var s = 34 + 30 * hash(i, j);
-        var x = i * sp + ((j & 1) ? sp / 2 : 0) - 40 + (hash(j, i) - 0.5) * 70;
-        var y = j * sp - par;
-        c.beginPath();
-        rrPath(x - s * 0.31, y - s, s * 0.62, s * 2, s * 0.17);
-        rrPath(x - s, y - s * 0.31, s * 2, s * 0.62, s * 0.17);
-        c.fill();
+  // Стелажі аптеки: полиці від краю до краю, на них коробки, пляшечки й баночки.
+  // Усе в тон тла — трохи світліше або трохи темніше за блакить, без інших
+  // кольорів, щоб не сперечатися зі справжніми поличками й вірусами. Стелажі
+  // пливуть утричі повільніше за гру — відчуття глибини й висоти.
+  // Малюємо один раз у позаекранне полотно (шість полиць) і кладемо його плиткою:
+  // у кадрі це два-три drawImage замість сотні фігур.
+  var SHELF_GAP = 240, SHELF_N = 6, TILE_H = SHELF_GAP * SHELF_N;
+  var tile = null, tileK = 0;
+  function rng(seed) {
+    return function () {
+      seed = (seed + 0x6D2B79F5) | 0;
+      var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function light(a) { return "rgba(255,255,255," + a.toFixed(3) + ")"; }
+  function dark(a) { return "rgba(0,50,82," + a.toFixed(3) + ")"; }
+
+  function drawShelves() {
+    // стійки стелажа
+    c.fillStyle = light(0.06);
+    c.fillRect(24, 0, 12, TILE_H); c.fillRect(W - 36, 0, 12, TILE_H);
+    for (var n = 0; n < SHELF_N; n++) {
+      var sy = n * SHELF_GAP + 190, R = rng(4242 + n * 977);
+      var x = 52 + R() * 30;
+      while (x < W - 120) {
+        if (R() < 0.15) { x += 50 + R() * 70; continue; }       // порожнє місце на полиці
+        var kind = R(), isLight = R() < 0.68;
+        var body = isLight ? light(0.07 + R() * 0.06) : dark(0.08 + R() * 0.06);
+        var mark = isLight ? dark(0.10) : light(0.11);
+        var w, h, bh;
+        if (kind < 0.4) {                                        // коробка
+          w = 42 + R() * 40; h = 48 + R() * 56;
+          rr(x, sy - h, w, h, 6); c.fillStyle = body; c.fill();
+          c.fillStyle = mark;
+          if (R() < 0.45) {                                      // з хрестом
+            var s = Math.min(w, h) * 0.2, cx = x + w / 2, cy = sy - h * 0.58;
+            c.beginPath();
+            rrPath(cx - s * 0.34, cy - s, s * 0.68, s * 2, s * 0.15);
+            rrPath(cx - s, cy - s * 0.34, s * 2, s * 0.68, s * 0.15);
+            c.fill();
+          } else {                                               // зі смужкою й рядками
+            c.fillRect(x, sy - h * 0.7, w, h * 0.2);
+            c.fillRect(x + 7, sy - h * 0.36, w * 0.5, 4);
+            c.fillRect(x + 7, sy - h * 0.36 + 9, w * 0.34, 4);
+          }
+        } else if (kind < 0.7) {                                 // пляшечка
+          w = 32 + R() * 16; h = 64 + R() * 36; bh = h - 22;
+          c.fillStyle = body;
+          rr(x, sy - bh, w, bh, 9); c.fill();
+          c.fillRect(x + w * 0.3, sy - bh - 10, w * 0.4, 10);
+          rr(x + w * 0.2, sy - h, w * 0.6, 12, 4); c.fill();
+          c.fillStyle = mark;
+          rr(x + 4, sy - bh * 0.68, w - 8, bh * 0.36, 3); c.fill();
+        } else if (kind < 0.88) {                                // баночка з кришкою
+          w = 48 + R() * 18; h = 42 + R() * 14;
+          c.fillStyle = body;
+          rr(x, sy - h, w, h, 11); c.fill();
+          rr(x - 2, sy - h - 10, w + 4, 10, 4); c.fill();
+          c.fillStyle = mark;
+          c.fillRect(x, sy - h * 0.66, w, h * 0.3);
+        } else {                                                 // дві коробки стосом
+          w = 58 + R() * 24; h = 26 + R() * 8;
+          var w2 = w * (0.6 + R() * 0.25), h2 = 22 + R() * 8;
+          c.fillStyle = body;
+          rr(x, sy - h, w, h, 5); c.fill();
+          rr(x + (w - w2) * R(), sy - h - h2, w2, h2, 5); c.fill();
+          c.fillStyle = mark;
+          c.fillRect(x + w * 0.62, sy - h, 7, h);
+        }
+        x += w + 8 + R() * 20;
       }
+      // сама полиця й тінь під нею
+      c.fillStyle = light(0.13);
+      rr(24, sy, W - 48, 10, 4); c.fill();
+      c.fillStyle = dark(0.10);
+      c.fillRect(34, sy + 10, W - 68, 6);
     }
-    c.restore();
+  }
+
+  function buildTile() {
+    var k = Math.min(2, scale * dpr);
+    if (tile && Math.abs(k - tileK) < 0.01) return;
+    tileK = k;
+    var cvs = document.createElement("canvas");
+    cvs.width = Math.max(1, Math.round(W * k));
+    cvs.height = Math.max(1, Math.round(TILE_H * k));
+    var main = c;
+    c = cvs.getContext("2d");          // помічники малювання пишуть у «поточне» полотно
+    try { c.setTransform(k, 0, 0, k, 0, 0); drawShelves(); }
+    finally { c = main; }
+    tile = cvs;
+  }
+
+  function drawBackdrop() {
+    if (!tile) return;
+    var px = scale * dpr;
+    var off = (((-S.camY * 0.3) % TILE_H) + TILE_H) % TILE_H;
+    for (var y = off - TILE_H; y < VH; y += TILE_H) {
+      c.drawImage(tile, 0, Math.round(y * px) / px, W, TILE_H);
+    }
   }
 
   function drawMarks() {
@@ -1146,6 +1228,7 @@
     safeTop = Math.max(0, $("probe").getBoundingClientRect().top - offY) / scale;
     safeBottom = Math.max(0, ih - $("probeB").getBoundingClientRect().top - offY) / scale;
     document.documentElement.style.setProperty("--col-side", Math.max(0, offX) + "px");
+    buildTile();
   }
   window.addEventListener("resize", resize);
   window.addEventListener("orientationchange", resize);
