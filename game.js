@@ -18,6 +18,8 @@
   var RS = 0.34;           // масштаб робота (намальований у «великих» одиницях)
   var FOOT = 22;           // на скільки центр робота може звисати з краю полички
   var PLAT_H = 24;
+  var SCORE_PX = 30;       // скільки px висоти дає один бал
+  var PILL_PTS = 5, FOE_PTS = 10;
 
   // Палітра — та сама, що в «Один на зміні» (брендбук АНЦ)
   var INK = "#1E2A31", SHELL = "#F3F8F9", SHELL_TOP = "#D2E6E2", SHELL_EDGE = "#DCEAEE";
@@ -28,7 +30,7 @@
 
   var cv = document.getElementById("c");
   var c = cv.getContext("2d");
-  var dpr = 1, iw = 0, ih = 0, scale = 1, offX = 0, offY = 0, safeTop = 0;
+  var dpr = 1, iw = 0, ih = 0, scale = 1, offX = 0, offY = 0, safeTop = 0, safeBottom = 0;
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -40,7 +42,8 @@
   // ---------- Збереження ----------
   function load(k, def) { try { var v = localStorage.getItem("polytsia." + k); return v == null ? def : v; } catch (e) { return def; } }
   function save(k, v) { try { localStorage.setItem("polytsia." + k, String(v)); } catch (e) { /* приватне вікно — граємо без рекорду */ } }
-  var best = parseInt(load("best", "0"), 10) || 0;
+  // «best2»: у версії 2 бали рахуються інакше, старий рекорд із «best» не порівнянний
+  var best = parseInt(load("best2", "0"), 10) || 0;
   var bestH = parseFloat(load("bestH", "0")) || 0;
   var muted = load("mute", "0") === "1";
   var useTilt = load("tilt", "0") === "1";
@@ -98,14 +101,15 @@
   }
 
   // ---------- Генерація рівня ----------
-  // Кожен «ряд» має головну поличку не далі ніж 242 px від попередньої —
-  // звичайного стрибка (306 px) завжди вистачає. Решта — прикраси й пастки.
+  // Кожен «ряд» має головну поличку не далі ніж 270 px від попередньої —
+  // звичайного стрибка (306 px) завжди вистачає, і по горизонталі робот за цей
+  // час долітає до будь-якої точки кільця. Запасних поличок майже нема.
   function genUpTo(yTop) {
     while (S.genY > yTop) genRow();
   }
   function genRow() {
     var h = -S.genY, d = clamp(h / 40000, 0, 1);
-    var gap = S.row < 5 ? rnd(95, 135) : lerp(92, 150, d) + Math.random() * lerp(55, 92, d);
+    var gap = S.row < 5 ? rnd(120, 160) : lerp(150, 215, d) + Math.random() * lerp(50, 55, d);
     S.genY -= gap; S.row++;
     var y = S.genY, w = lerp(150, 114, d);
     var type = "n", r = Math.random();
@@ -119,9 +123,9 @@
     if (type === "n" && S.row > 6 && Math.random() < 0.075) p.sx = rnd(-w / 2 + 30, w / 2 - 30);
     S.plats.push(p);
 
-    // друга поличка в тому ж ряду — на початку часто, далі рідше
+    // друга поличка в тому ж ряду — зрідка, а з висотою майже ніколи
     var x2 = null;
-    if (Math.random() < lerp(0.5, 0.14, d)) {
+    if (Math.random() < lerp(0.18, 0.04, d)) {
       for (var k = 0; k < 6 && x2 == null; k++) {
         var cand = rnd(w / 2 + 14, W - w / 2 - 14);
         if (Math.abs(cand - x) > w + 36) x2 = cand;
@@ -131,8 +135,8 @@
 
     // таблетки: над поличкою або стовпчиком над пружиною
     if (p.sx != null) {
-      for (var q = 0; q < 3; q++) S.items.push({ type: "pill", x: x + p.sx, y: y - 210 - q * 130, r: 25, ph: rnd(0, 6) });
-    } else if (S.row > 2 && Math.random() < 0.3) {
+      S.items.push({ type: "pill", x: x + p.sx, y: y - 420, r: 25, ph: rnd(0, 6) });
+    } else if (S.row > 2 && Math.random() < 0.1) {
       if (type === "m") S.items.push({ type: "pill", x: rnd(60, W - 60), y: y - rnd(70, 110), r: 25, ph: rnd(0, 6) });
       else S.items.push({ type: "pill", x: x, y: y - 56, r: 25, ph: rnd(0, 6) });
     }
@@ -214,7 +218,7 @@
     if (S.hintT > 0 && mode === "play") S.hintT -= dt;
 
     if (!r.dead && r.y < S.minY) S.minY = r.y;
-    S.score = Math.floor(-S.minY / 10) + S.bonus;
+    S.score = Math.floor(-S.minY / SCORE_PX) + S.bonus;
 
     var target = r.y - VH * 0.48;
     if (target < S.camY) S.camY += (target - S.camY) * Math.min(1, dt * 0.014);
@@ -277,8 +281,8 @@
       if (Math.abs(dx) < 46 + it.r * 0.6 && Math.abs(dy) < 78 + it.r * 0.6) {
         S.items.splice(i, 1);
         if (it.type === "pill") {
-          S.bonus += 25; r.moodT = 420;
-          pop("+25", it.x, it.y - 20, false);
+          S.bonus += PILL_PTS; r.moodT = 420;
+          pop("+" + PILL_PTS, it.x, it.y - 20, false);
           sfx.pill();
         } else {
           r.boost = BOOST_MS; r.moodT = BOOST_MS;
@@ -305,12 +309,12 @@
       var dx = wrapDx(r.x - f.x), cy = r.y - 72, rr = f.r * 0.8;
       if (Math.abs(dx) < 34 + rr && cy + 66 > fy - rr && cy - 66 < fy + rr) {
         if (r.boost > 0) {
-          f.dead = true; f.vy = -0.5; S.bonus += 50;
-          pop("+50", f.x, fy - 30, true); sfx.stomp();
+          f.dead = true; f.vy = -0.5; S.bonus += FOE_PTS;
+          pop("+" + FOE_PTS, f.x, fy - 30, true); sfx.stomp();
         } else if (r.vy > 0 && r.py <= fy - 4) {
-          f.dead = true; f.vy = 0.2; S.bonus += 50;
+          f.dead = true; f.vy = 0.2; S.bonus += FOE_PTS;
           r.vy = -VJ; r.squashT = 170; r.moodT = 420;
-          pop("+50", f.x, fy - 30, true); sfx.stomp();
+          pop("+" + FOE_PTS, f.x, fy - 30, true); sfx.stomp();
         } else {
           r.dead = true; r.vy = -0.55; r.vx = dx >= 0 ? 0.22 : -0.22; r.boost = 0;
           sfx.hit();
@@ -397,18 +401,18 @@
   }
 
   function drawMarks() {
-    // позначки висоти через кожні 250 балів
-    var top = S.camY, bottom = S.camY + VH;
+    // позначки висоти через кожні 100 балів
+    var top = S.camY, bottom = S.camY + VH, stepPx = 100 * SCORE_PX;
     c.save();
     c.textAlign = "left";
     c.font = "800 20px " + FONT;
-    var k0 = Math.max(1, Math.floor(-bottom / 2500)), k1 = Math.floor(-top / 2500) + 1;
+    var k0 = Math.max(1, Math.floor(-bottom / stepPx)), k1 = Math.floor(-top / stepPx) + 1;
     for (var k = k0; k <= k1; k++) {
-      var y = -k * 2500;
+      var y = -k * stepPx;
       c.strokeStyle = "rgba(255,255,255,.2)"; c.lineWidth = 3; c.setLineDash([4, 14]); c.lineCap = "round";
       line(84, y, W - 16, y);
       c.fillStyle = "rgba(255,255,255,.4)";
-      c.fillText(String(k * 250), 16, y + 7);
+      c.fillText(String(k * 100), 16, y + 7);
     }
     // лінія рекорду
     if (bestH > 400 && mode !== "menu") {
@@ -814,9 +818,36 @@
       c.font = "800 26px " + FONT;
       // пишемо на стійці: коли робот піде вгору, підказка поїде вниз разом із нею
       c.fillStyle = BLUE_DEEP;
-      var txt = isDesktop ? "← →  або  A / D" : (useTilt ? "нахиляй телефон" : "тримай палець ліворуч або праворуч");
+      var txt = isDesktop ? "← →  або  A / D" : (useTilt ? "нахиляй телефон" : "тримай кнопки внизу");
       var hy = -S.camY + 96;
       if (hy < VH + 30) c.fillText(txt, W / 2, hy);
+      c.restore();
+    }
+    drawPads();
+  }
+
+  // Кнопки «ліворуч» і «праворуч» у нижніх кутах. Працює вся половина екрана,
+  // кнопки лише показують, куди тиснути, і світяться, поки робот їде в той бік.
+  var PAD_R = 72;
+  function drawPads() {
+    if (mode !== "play" && mode !== "pause") return;
+    var dir = (mode === "play" && !S.robot.dead) ? inputDir() : 0;
+    var y = VH - 26 - PAD_R - safeBottom;
+    for (var i = 0; i < 2; i++) {
+      var s = i ? 1 : -1, x = i ? W - 26 - PAD_R : 26 + PAD_R, on = dir * s > 0.15;
+      c.save();
+      c.globalAlpha = on ? 1 : 0.8;
+      c.fillStyle = "rgba(0,0,0,.14)";
+      circle(x + 2, y + (on ? 3 : 7), PAD_R); c.fill();
+      if (on) c.translate(0, 3);
+      circle(x, y, PAD_R);
+      fs(on ? YELLOW : BLUE_DEEP, "#FFFFFF", 6);
+      c.beginPath();
+      c.moveTo(x + s * 26, y); c.lineTo(x - s * 16, y - 28); c.lineTo(x - s * 16, y + 28);
+      c.closePath();
+      c.lineJoin = "round"; c.lineWidth = 10;
+      c.fillStyle = c.strokeStyle = on ? BLUE_DEEP : YELLOW;
+      c.fill(); c.stroke();
       c.restore();
     }
   }
@@ -884,7 +915,7 @@
     $("soundBtn").textContent = s; $("soundBtn2").textContent = s;
     $("tiltBtn").hidden = !hasTilt;
     $("tiltBtn").textContent = "Керування: " + (useTilt ? "нахил" : "дотик");
-    $("touchHint").textContent = useTilt ? "Нахиляй телефон ліворуч або праворуч" : "Тримай палець ліворуч або праворуч";
+    $("touchHint").textContent = useTilt ? "Нахиляй телефон ліворуч або праворуч" : "Тримай кнопку ліворуч або праворуч унизу екрана";
     $("bestStart").hidden = best <= 0;
     $("bestStart").querySelector("b").textContent = String(best);
   }
@@ -919,7 +950,7 @@
     sfx.over();
     mode = "over";
     var sc = S.score, isNew = sc > best && sc > 0;
-    if (isNew) { best = sc; save("best", best); }
+    if (isNew) { best = sc; save("best2", best); }
     if (-S.minY > bestH) { bestH = -S.minY; save("bestH", Math.round(bestH)); }
     var list = SUBS[why] || SUBS.fall;
     $("overSub").textContent = list[Math.floor(Math.random() * list.length)];
@@ -1017,6 +1048,7 @@
     scale = Math.min(iw / W, ih / VH);
     offX = (iw - W * scale) / 2; offY = (ih - VH * scale) / 2;
     safeTop = Math.max(0, $("probe").getBoundingClientRect().top - offY) / scale;
+    safeBottom = Math.max(0, ih - $("probeB").getBoundingClientRect().top - offY) / scale;
     document.documentElement.style.setProperty("--col-side", Math.max(0, offX) + "px");
   }
   window.addEventListener("resize", resize);

@@ -46,6 +46,7 @@
   #stage { position: relative; width: 100%; height: 100%; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #probe { position: fixed; left: 0; top: var(--safe-top); width: 0; height: 0; pointer-events: none; }
+  #probeB { position: fixed; left: 0; bottom: var(--safe-bottom); width: 0; height: 0; pointer-events: none; }
 
   /* ---- Кнопка паузи ---- */
   #pauseBtn {
@@ -131,6 +132,7 @@
 <div id="stage">
   <canvas id="c"></canvas>
   <div id="probe"></div>
+  <div id="probeB"></div>
 
   <button id="pauseBtn" type="button" aria-label="Пауза" hidden><i></i><i></i></button>
 
@@ -146,14 +148,14 @@
         <li><span class="chip v"></span>вірус — тільки стрибати згори</li>
       </ul>
       <p class="keys kb"><kbd>←</kbd> <kbd>→</kbd> або <kbd>A</kbd> <kbd>D</kbd> — рух, <kbd>P</kbd> — пауза</p>
-      <p class="keys touch" id="touchHint">Тримай палець ліворуч або праворуч</p>
+      <p class="keys touch" id="touchHint">Тримай кнопку ліворуч або праворуч унизу екрана</p>
       <p class="bestline" id="bestStart" hidden>Рекорд: <b></b></p>
       <div class="row"><button class="btn" id="playBtn" type="button">Грати</button></div>
       <div class="row">
         <button class="btn secondary" id="tiltBtn" type="button" hidden>Керування: дотик</button>
         <button class="btn secondary" id="soundBtn" type="button">Звук: увімкнено</button>
       </div>
-      <p class="ver">версія 1</p>
+      <p class="ver">версія 2</p>
     </div>
   </div>
 
@@ -182,6 +184,6 @@
     </div>
   </div>
 </div>
-<script src="game.js?v=1"></script>
+<script src="game.js?v=2"></script>
 </body>
 </html>
