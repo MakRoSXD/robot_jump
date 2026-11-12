@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#008ECC">
+<title>До верхньої полиці</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23008ECC'/%3E%3Cpath d='M26 12h12v14h14v12H38v14H26V38H12V26h14z' fill='%23FFE241'/%3E%3C/svg%3E">
+<style>
+  /* Montserrat (SIL OFL 1.1) лежить поруч — гра виглядає однаково з мережею і без неї */
+  @font-face {
+    font-family: "Montserrat"; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(fonts/montserrat-cyrillic.woff2) format("woff2");
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+  }
+  @font-face {
+    font-family: "Montserrat"; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(fonts/montserrat-latin.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  :root {
+    color-scheme: light;
+    --blue: #008ECC;
+    --blue-deep: #0070A4;
+    --blue-25: #BFE3F2;
+    --yellow: #FFE241;
+    --white: #FFFFFF;
+    --ink: #2B3A42;
+    --font: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --col-side: 0px;   /* ширина поля збоку від ігрової колонки — виставляє game.js */
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+  body {
+    background: var(--blue);
+    font-family: var(--font);
+    color: var(--white);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #stage { position: relative; width: 100%; height: 100%; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #probe { position: fixed; left: 0; top: var(--safe-top); width: 0; height: 0; pointer-events: none; }
+
+  /* ---- Кнопка паузи ---- */
+  #pauseBtn {
+    position: absolute; z-index: 5;
+    top: calc(12px + var(--safe-top));
+    right: calc(12px + var(--col-side) + var(--safe-right));
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 3px solid var(--white); background: var(--blue-deep);
+    box-shadow: 0 4px 0 rgba(0,0,0,.12);
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    cursor: pointer; padding: 0;
+  }
+  #pauseBtn[hidden] { display: none; }
+  #pauseBtn i { display: block; width: 5px; height: 16px; border-radius: 2px; background: var(--yellow); }
+  #pauseBtn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,.12); }
+
+  /* ---- Оверлеї ---- */
+  .overlay {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    padding: calc(14px + var(--safe-top)) calc(14px + var(--safe-right)) calc(14px + var(--safe-bottom)) calc(14px + var(--safe-left));
+    background: rgba(0,112,164,.56);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    text-align: center;
+  }
+  .overlay[hidden] { display: none; }
+  /* на старті робот підстрибує під карткою — тло не глушимо */
+  #start { align-items: flex-start; padding-top: calc(5vh + var(--safe-top)); background: rgba(0,112,164,.18); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .card {
+    background: var(--white); color: var(--ink);
+    border-radius: 24px; padding: 20px 22px;
+    width: min(100%, 400px);
+    max-height: 100%; overflow-y: auto;
+    box-shadow: 0 8px 0 rgba(0,0,0,.12);
+  }
+  h1 { margin: 0 0 6px; font-size: 26px; font-weight: 800; color: var(--blue); text-wrap: balance; letter-spacing: -.01em; }
+  h2 { margin: 0 0 4px; font-size: 22px; font-weight: 800; color: var(--blue); }
+  .sub { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: #5A6B75; text-wrap: pretty; }
+  .ver { margin: 10px 0 0; font-size: 11px; color: #9AA7AF; }
+  .row { display: flex; gap: 10px; }
+  .row + .row { margin-top: 10px; }
+  .btn {
+    flex: 1; border: 0; border-radius: 15px; padding: 13px 14px;
+    font-family: var(--font); font-size: 16px; font-weight: 800;
+    background: var(--yellow); color: var(--blue-deep);
+    box-shadow: 0 4px 0 #D9BE2C; cursor: pointer;
+  }
+  .btn.secondary { background: var(--blue-25); color: var(--blue-deep); box-shadow: 0 4px 0 #92C4DA; font-size: 14px; padding: 11px 12px; }
+  .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #D9BE2C; }
+  .btn.secondary:active { box-shadow: 0 2px 0 #92C4DA; }
+  .btn[hidden] { display: none; }
+  :focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+
+  /* ---- Що є що ---- */
+  .legend { list-style: none; margin: 0 0 12px; padding: 10px 12px; border-radius: 14px; background: #EEF7FB; text-align: left; display: grid; gap: 7px; }
+  .legend li { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; color: #465862; line-height: 1.25; }
+  .chip { flex: none; width: 46px; height: 12px; border-radius: 6px; }
+  .chip.n { background: #fff; box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 12px var(--blue-25), 0 0 0 1.5px #9CC9DD; }
+  .chip.m { background: var(--yellow); box-shadow: 0 0 0 1.5px #D9BE2C; }
+  .chip.f { background: #F1C29B; box-shadow: 0 0 0 1.5px #B9794C; position: relative; }
+  .chip.f::after { content: ""; position: absolute; left: 15px; right: 15px; top: 2px; bottom: 2px; border-radius: 2px; background: #FBE4CE; }
+  .chip.v { width: 22px; height: 22px; margin: 0 12px; border-radius: 50%; background: #FF6B5A; box-shadow: 0 0 0 2px #1E2A31; }
+  .chip.c { width: 34px; height: 16px; margin: 0 6px; border-radius: 8px; background: linear-gradient(90deg, var(--yellow) 50%, #fff 50%); box-shadow: 0 0 0 2px #1E2A31; transform: rotate(-20deg); }
+
+  .keys { margin: 0 0 14px; font-size: 12.5px; font-weight: 700; color: var(--blue-deep); }
+  .keys.kb { display: none; }
+  body.desktop .keys.touch { display: none; }
+  body.desktop .keys.kb { display: block; }
+  kbd { display: inline-block; min-width: 24px; padding: 2px 6px; border-radius: 7px; background: var(--blue-25); font: inherit; font-weight: 800; box-shadow: 0 2px 0 #92C4DA; }
+
+  .label { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: #7E8C95; }
+  .value { font-size: 32px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--blue-deep); }
+  .scoreline { display: flex; justify-content: center; gap: 30px; margin: 8px 0 14px; }
+  .badge { display: inline-block; margin: 0 0 6px; padding: 4px 12px; border-radius: 999px; background: var(--yellow); color: var(--blue-deep); font-size: 12px; font-weight: 800; }
+  .badge[hidden] { display: none; }
+  .bestline { margin: 0 0 12px; font-size: 13px; font-weight: 700; color: #5A6B75; }
+  .bestline[hidden] { display: none; }
+  .bestline b { color: var(--blue-deep); font-weight: 800; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="probe"></div>
+
+  <button id="pauseBtn" type="button" aria-label="Пауза" hidden><i></i><i></i></button>
+
+  <div class="overlay" id="start">
+    <div class="card">
+      <h1>До верхньої полиці</h1>
+      <p class="sub">Робот скаче поличками аптеки дедалі вище. Збирай таблетки й не падай.</p>
+      <ul class="legend">
+        <li><span class="chip n"></span>звичайна поличка</li>
+        <li><span class="chip m"></span>їздить туди-сюди</li>
+        <li><span class="chip f"></span>пластир — витримає один стрибок</li>
+        <li><span class="chip c"></span>вітамін — ривок угору</li>
+        <li><span class="chip v"></span>вірус — тільки стрибати згори</li>
+      </ul>
+      <p class="keys kb"><kbd>←</kbd> <kbd>→</kbd> або <kbd>A</kbd> <kbd>D</kbd> — рух, <kbd>P</kbd> — пауза</p>
+      <p class="keys touch" id="touchHint">Тримай палець ліворуч або праворуч</p>
+      <p class="bestline" id="bestStart" hidden>Рекорд: <b></b></p>
+      <div class="row"><button class="btn" id="playBtn" type="button">Грати</button></div>
+      <div class="row">
+        <button class="btn secondary" id="tiltBtn" type="button" hidden>Керування: дотик</button>
+        <button class="btn secondary" id="soundBtn" type="button">Звук: увімкнено</button>
+      </div>
+      <p class="ver">версія 1</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="pause" hidden>
+    <div class="card">
+      <h2>Пауза</h2>
+      <p class="sub">Робот зачекає на поличці.</p>
+      <div class="row"><button class="btn" id="resumeBtn" type="button">Продовжити</button></div>
+      <div class="row">
+        <button class="btn secondary" id="soundBtn2" type="button">Звук: увімкнено</button>
+        <button class="btn secondary" id="menuBtn" type="button">У меню</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="over" hidden>
+    <div class="card">
+      <span class="badge" id="newBest" hidden>Новий рекорд!</span>
+      <h2 id="overTitle">Зміну завершено</h2>
+      <p class="sub" id="overSub">Робот не втримався на поличці.</p>
+      <div class="scoreline">
+        <div><div class="label">Рахунок</div><div class="value" id="overScore">0</div></div>
+        <div><div class="label">Рекорд</div><div class="value" id="overBest">0</div></div>
+      </div>
+      <div class="row"><button class="btn" id="againBtn" type="button">Ще раз</button></div>
+    </div>
+  </div>
+</div>
+<script src="game.js?v=1"></script>
+</body>
+</html>
