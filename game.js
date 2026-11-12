@@ -5,7 +5,7 @@
   "use strict";
 
   // Номер версії: той самий має стояти у version.json і в ?v= біля game.js в index.html
-  var VERSION = 3;
+  var VERSION = 4;
 
   // ---------- Світ ----------
   // Ширина світу стала, висота видимої частини залежить від екрана.
@@ -13,7 +13,7 @@
   var W = 720;
   var VH = 1280;
   var G = 0.0022;          // px/мс²
-  var VJ = 1.16;           // звичайний стрибок: висота VJ²/2G ≈ 306 px
+  var VJ = 1.27;           // звичайний стрибок: висота VJ²/2G ≈ 367 px
   var VSPRING = 1.95;      // з пружини
   var VBOOST = 1.55;       // ривок на вітаміні, px/мс
   var BOOST_MS = 2300;
@@ -98,70 +98,141 @@
       robot: { x: W / 2, y: 0, py: 0, vx: 0, vy: 0, face: 1, faceT: 1, squashT: 0, boost: 0,
                dead: false, spin: 0, moodT: 0, track: 0, puff: 0 },
       plats: [{ type: "floor", x: W / 2, y: 0, w: W * 4, sx: null, broken: false }],
-      items: [], foes: [], parts: [], pops: [], hintT: 4500, why: ""
+      items: [], foes: [], parts: [], pops: [], boxes: [], gplats: [], hintT: 4500, why: ""
     };
     genUpTo(S.camY - 420);
   }
 
   // ---------- Генерація рівня ----------
   // Кожен «ряд» має головну поличку не далі ніж 270 px від попередньої —
-  // звичайного стрибка (306 px) завжди вистачає, і по горизонталі робот за цей
+  // звичайного стрибка (367 px) завжди вистачає, і по горизонталі робот за цей
   // час долітає до будь-якої точки кільця. Запасних поличок майже нема.
+  //
+  // Ніщо ні з чим не перетинається. Усе поставлене лишає прямокутник у S.boxes,
+  // причому рухомі речі займають увесь свій шлях: поличка й вірус їздять від
+  // краю до краю, тож їхня смуга по висоті зайнята на всю ширину. Нове ставимо
+  // лише у вільне місце; не влазить — пробуємо інший X, а тоді обходимось без
+  // нього (вірус стає нерухомим, запасна поличка чи таблетка не з'являється).
+  // Головній поличці місце є завжди: усе з попереднього ряду лежить не вище ніж
+  // 117 px над ним, а наступний ряд починається щонайменше за 118 px.
   function genUpTo(yTop) {
     while (S.genY > yTop) genRow();
   }
+  function isFree(x0, x1, y0, y1, pad) {
+    for (var i = 0; i < S.boxes.length; i++) {
+      var b = S.boxes[i];
+      if (x0 - pad < b.x1 && x1 + pad > b.x0 && y0 < b.y1 && y1 > b.y0) return false;
+    }
+    return true;
+  }
+  function occupy(x0, x1, y0, y1) { S.boxes.push({ x0: x0, x1: x1, y0: y0, y1: y1 }); }
+  // Нерухомий вірус не може висіти над нерухомою поличкою: робот підстрибує сам,
+  // тож приземлившись під вірусом, він за якусь мить влітає в нього головою й
+  // ухилитися не встигає — поличка стає пасткою. Над поличкою (до 450 px угору:
+  // зріст робота + шлях, за який ще можна відійти вбік) вірус стоїть не ближче
+  // ніж 110 px від її краю: це край + 22 px смуги приземлення + пів робота + вірус.
+  function virusClear(fx, fy) {
+    for (var i = 0; i < S.gplats.length; i++) {
+      var g = S.gplats[i], dy = g.y - fy;
+      if (dy > 0 && dy < 450 && Math.abs(fx - g.x) < g.w / 2 + 110) return false;
+    }
+    return true;
+  }
+
   function genRow() {
-    var h = -S.genY, d = clamp(h / 40000, 0, 1);
+    var h = -S.genY, d = clamp(h / 40000, 0, 1), k, cand;
     var gap = S.row < 5 ? rnd(120, 160) : lerp(150, 215, d) + Math.random() * lerp(50, 55, d);
     S.genY -= gap; S.row++;
     var y = S.genY, w = lerp(130, 102, d);
+    for (k = S.boxes.length - 1; k >= 0; k--) if (S.boxes[k].y0 > y + 700) S.boxes.splice(k, 1);
+    for (k = S.gplats.length - 1; k >= 0; k--) if (S.gplats[k].y > y + 700) S.gplats.splice(k, 1);
+
+    // ---- головна поличка ----
     var type = "n", r = Math.random();
     var pm = lerp(0.06, 0.36, d);
     var pf = (h > 1500 && !S.lastFragile) ? lerp(0.05, 0.2, d) : 0;
     if (r < pm) type = "m"; else if (r < pm + pf) type = "f";
+    if (type === "m" && !isFree(6, W - 6, y - 2, y + 32, 0)) type = "n";
     S.lastFragile = type === "f";
     var x = rnd(w / 2 + 14, W - w / 2 - 14);
+    if (type !== "m") {
+      for (k = 0; k < 12 && !isFree(x - w / 2, x + w / 2, y - 36, y + 32, 12); k++) x = rnd(w / 2 + 14, W - w / 2 - 14);
+    }
     var p = mkPlat(type, x, y, w);
-    if (type === "m") p.vx = (Math.random() < 0.5 ? -1 : 1) * lerp(0.09, 0.2, d) * rnd(0.8, 1.2);
-    if (type === "n" && S.row > 6 && Math.random() < 0.075) p.sx = rnd(-w / 2 + 30, w / 2 - 30);
+    if (type === "m") {
+      p.vx = (Math.random() < 0.5 ? -1 : 1) * lerp(0.09, 0.2, d) * rnd(0.8, 1.2);
+      occupy(6, W - 6, y - 2, y + 32);
+    } else {
+      occupy(x - w / 2, x + w / 2, y - 2, y + 32);
+      S.gplats.push({ x: x, y: y, w: w });
+      if (type === "n" && S.row > 6 && Math.random() < 0.075) {
+        p.sx = rnd(-w / 2 + 30, w / 2 - 30);
+        occupy(x + p.sx - 27, x + p.sx + 27, y - 36, y - 2);
+      }
+    }
     S.plats.push(p);
 
-    // друга поличка в тому ж ряду — зрідка, а з висотою майже ніколи
-    var x2 = null;
+    // ---- друга поличка в тому ж ряду — зрідка, а з висотою майже ніколи ----
     if (Math.random() < lerp(0.18, 0.04, d)) {
-      for (var k = 0; k < 6 && x2 == null; k++) {
-        var cand = rnd(w / 2 + 14, W - w / 2 - 14);
-        if (Math.abs(cand - x) > w + 36) x2 = cand;
+      var y2 = y + rnd(-34, 34), x2 = null;
+      for (k = 0; k < 8 && x2 == null; k++) {
+        cand = rnd(w / 2 + 14, W - w / 2 - 14);
+        if (isFree(cand - w / 2, cand + w / 2, y2 - 2, y2 + 32, 36)) x2 = cand;
       }
-      if (x2 != null) S.plats.push(mkPlat(h > 1500 && Math.random() < 0.35 ? "f" : "n", x2, y + rnd(-34, 34), w));
+      if (x2 != null) {
+        S.plats.push(mkPlat(h > 1500 && Math.random() < 0.35 ? "f" : "n", x2, y2, w));
+        occupy(x2 - w / 2, x2 + w / 2, y2 - 2, y2 + 32);
+        S.gplats.push({ x: x2, y: y2, w: w });
+      }
     }
 
-    // таблетки: над поличкою або стовпчиком над пружиною
-    if (p.sx != null) {
-      S.items.push({ type: "pill", x: x + p.sx, y: y - 420, r: 25, ph: rnd(0, 6) });
-    } else if (S.row > 2 && Math.random() < 0.1) {
-      if (type === "m") S.items.push({ type: "pill", x: rnd(60, W - 60), y: y - rnd(70, 110), r: 25, ph: rnd(0, 6) });
-      else S.items.push({ type: "pill", x: x, y: y - 56, r: 25, ph: rnd(0, 6) });
+    // ---- таблетка: над поличкою, над пружиною або поруч із рухомою ----
+    var px = null, py = 0;
+    if (p.sx != null) { px = x + p.sx; py = y - 86; }
+    else if (S.row > 2 && Math.random() < 0.1) {
+      if (type === "m") { px = rnd(60, W - 60); py = y - rnd(64, 86); }
+      else { px = x; py = y - 56; }
+    }
+    if (px != null && isFree(px - 30, px + 30, py - 30, py + 30, 6)) {
+      S.items.push({ type: "pill", x: px, y: py, r: 25, ph: rnd(0, 6) });
+      occupy(px - 30, px + 30, py - 30, py + 30);
     }
 
-    // вітамін — рідкісний ривок угору
+    // ---- вітамін — рідкісний ривок угору ----
     if (h > 2500 && S.row - S.lastVitRow > 28 && Math.random() < 0.06) {
-      S.lastVitRow = S.row;
-      S.items.push({ type: "vit", x: rnd(70, W - 70), y: y - 96, r: 30, ph: rnd(0, 6) });
+      for (k = 0; k < 8; k++) {
+        cand = rnd(70, W - 70);
+        if (!isFree(cand - 42, cand + 42, y - 116, y - 32, 10)) continue;
+        S.lastVitRow = S.row;
+        S.items.push({ type: "vit", x: cand, y: y - 74, r: 30, ph: rnd(0, 6) });
+        occupy(cand - 42, cand + 42, y - 116, y - 32);
+        break;
+      }
     }
 
-    // вірус: збоку від головної полички, не над другою. Нерухомий стоїть щонайменше
-    // за 110 px від краю полички — смуга приземлення (край + 22 px) завжди вільна.
-    if (h > 2200 && S.row - S.lastFoeRow > 1 && Math.random() < lerp(0.18, 0.4, d)) {
-      var fx = null;
-      for (var t = 0; t < 8 && fx == null; t++) {
-        var cf = rnd(60, W - 60);
-        if (Math.abs(cf - x) > w / 2 + 110 && (x2 == null || Math.abs(cf - x2) > w / 2 + 90)) fx = cf;
+    // ---- вірус ----
+    // Рухомий — лише якщо вся його смуга вільна (нема пружини, таблетки, вищої
+    // запасної полички): він їздить туди-сюди, його можна перечекати. Нерухомий —
+    // лише там, де не висить над поличкою (virusClear). Нема де стати нерухомому —
+    // стає рухомим, а не влазить у смугу — обходимось без вірусу.
+    if (h > 2200 && S.row - S.lastFoeRow > 1 && Math.random() < lerp(0.2, 0.42, d)) {
+      var fy = y - 62, fx = null, fvx = 0;
+      var bandFree = isFree(11, W - 11, fy - 55, fy + 55, 0);
+      if (!(bandFree && Math.random() < 0.5)) {
+        for (k = 0; k < 14 && fx == null; k++) {
+          cand = rnd(60, W - 60);
+          if (virusClear(cand, fy) && isFree(cand - 47, cand + 47, fy - 55, fy + 55, 12)) fx = cand;
+        }
+        if (fx != null) occupy(fx - 47, fx + 47, fy - 55, fy + 55);
+      }
+      if (fx == null && bandFree) {
+        fx = rnd(60, W - 60);
+        fvx = (Math.random() < 0.5 ? -1 : 1) * rnd(0.05, 0.1);
+        occupy(11, W - 11, fy - 55, fy + 55);
       }
       if (fx != null) {
         S.lastFoeRow = S.row;
-        S.foes.push({ x: fx, y: y - 74, r: 30, ph: rnd(0, 3000), dead: false, vy: 0, rot: 0, a: 1,
-                      vx: Math.random() < 0.5 ? 0 : (Math.random() < 0.5 ? -1 : 1) * rnd(0.05, 0.1) });
+        S.foes.push({ x: fx, y: fy, r: 30, ph: rnd(0, 3000), dead: false, vy: 0, rot: 0, a: 1, vx: fvx });
       }
     }
   }
@@ -265,7 +336,7 @@
     for (var i = 0; i < S.plats.length; i++) {
       var p = S.plats[i];
       if (p.broken) {
-        p.vy += G * dt; p.y += p.vy * dt; p.rot += dt * 0.0035; p.a -= dt / 520;
+        p.vy += G * dt; p.y += p.vy * dt; p.rot += dt * 0.0035; p.a -= dt / 300;   // зникає раніше, ніж долетить до полички нижче
       } else if (p.vx) {
         p.x += p.vx * dt;
         var lo = p.w / 2 + 8, hi = W - p.w / 2 - 8;
@@ -310,8 +381,12 @@
       }
       if (mode !== "play" || r.dead) continue;
       var fy = f.y + Math.sin(f.ph / 420) * 8;
-      var dx = wrapDx(r.x - f.x), cy = r.y - 72, rr = f.r * 0.8;
-      if (Math.abs(dx) < 34 + rr && cy + 66 > fy - rr && cy - 66 < fy + rr) {
+      // Хітбокс: коло вірусу (тіло й половина шипів) проти прямокутника робота
+      // (корпус із головою). Раніше обидва були помітно менші за малюнок.
+      var dx = wrapDx(r.x - f.x), R = f.r * 1.25;
+      var nx = clamp(-dx, -40, 40), ny = clamp(fy, r.y - 148, r.y - 4);
+      var ex = -dx - nx, ey = fy - ny;
+      if (ex * ex + ey * ey < R * R) {
         if (r.boost > 0) {
           f.dead = true; f.vy = -0.5; S.bonus += FOE_PTS;
           pop("+" + FOE_PTS, f.x, fy - 30, true); sfx.stomp();
