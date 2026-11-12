@@ -5,7 +5,7 @@
   "use strict";
 
   // Номер версії: той самий має стояти у version.json і в ?v= біля game.js в index.html
-  var VERSION = 4;
+  var VERSION = 5;
 
   // ---------- Світ ----------
   // Ширина світу стала, висота видимої частини залежить від екрана.
@@ -94,7 +94,7 @@
   function reset() {
     S = {
       t: 0, camY: -VH * 0.78, minY: 0, bonus: 0, score: 0,
-      genY: 0, row: 0, lastFragile: false, lastFoeRow: -9, lastVitRow: -30,
+      genY: 0, row: 0, lastFragile: false, lastFoeRow: -9, lastVitRow: -30, prevX: null,
       robot: { x: W / 2, y: 0, py: 0, vx: 0, vy: 0, face: 1, faceT: 1, squashT: 0, boost: 0,
                dead: false, spin: 0, moodT: 0, track: 0, puff: 0 },
       plats: [{ type: "floor", x: W / 2, y: 0, w: W * 4, sx: null, broken: false }],
@@ -112,7 +112,7 @@
   // причому рухомі речі займають увесь свій шлях: поличка й вірус їздять від
   // краю до краю, тож їхня смуга по висоті зайнята на всю ширину. Нове ставимо
   // лише у вільне місце; не влазить — пробуємо інший X, а тоді обходимось без
-  // нього (вірус стає нерухомим, запасна поличка чи таблетка не з'являється).
+  // нього (запасна поличка, таблетка чи вірус просто не з'являється).
   // Головній поличці місце є завжди: усе з попереднього ряду лежить не вище ніж
   // 117 px над ним, а наступний ряд починається щонайменше за 118 px.
   function genUpTo(yTop) {
@@ -158,6 +158,8 @@
     if (type !== "m") {
       for (k = 0; k < 12 && !isFree(x - w / 2, x + w / 2, y - 36, y + 32, 12); k++) x = rnd(w / 2 + 14, W - w / 2 - 14);
     }
+    var prevX = S.prevX;                 // головна поличка ряду нижче (null — рухома)
+    S.prevX = type === "m" ? null : x;
     var p = mkPlat(type, x, y, w);
     if (type === "m") {
       p.vx = (Math.random() < 0.5 ? -1 : 1) * lerp(0.09, 0.2, d) * rnd(0.8, 1.2);
@@ -213,21 +215,27 @@
     // ---- вірус ----
     // Рухомий — лише якщо вся його смуга вільна (нема пружини, таблетки, вищої
     // запасної полички): він їздить туди-сюди, його можна перечекати. Нерухомий —
-    // лише там, де не висить над поличкою (virusClear). Нема де стати нерухомому —
-    // стає рухомим, а не влазить у смугу — обходимось без вірусу.
-    if (h > 2200 && S.row - S.lastFoeRow > 1 && Math.random() < lerp(0.2, 0.42, d)) {
+    // лише там, де не висить над поличкою (virusClear), зате з дозволених місць
+    // обирає найближче до дороги — середини між поличкою нижче й цією: стоїть не
+    // десь у кутку, а там, де робот летітиме. Обійти можна завжди: над ним, з
+    // іншого боку кільця або піднявшись у стовпі своєї полички — він вільний.
+    // Нема де стати нерухомому — стає рухомим, а не влазить у смугу — вірусу нема.
+    if (h > 1800 && S.row - S.lastFoeRow > 1 && Math.random() < lerp(0.3, 0.52, d)) {
       var fy = y - 62, fx = null, fvx = 0;
       var bandFree = isFree(11, W - 11, fy - 55, fy + 55, 0);
-      if (!(bandFree && Math.random() < 0.5)) {
-        for (k = 0; k < 14 && fx == null; k++) {
+      if (!(bandFree && Math.random() < 0.6)) {
+        var aim = (prevX != null && type !== "m") ? (prevX + x) / 2 : null, bestD = 1e9;
+        for (k = 0; k < 16; k++) {
           cand = rnd(60, W - 60);
-          if (virusClear(cand, fy) && isFree(cand - 47, cand + 47, fy - 55, fy + 55, 12)) fx = cand;
+          if (!virusClear(cand, fy) || !isFree(cand - 47, cand + 47, fy - 55, fy + 55, 12)) continue;
+          if (aim == null) { fx = cand; break; }
+          if (Math.abs(cand - aim) < bestD) { bestD = Math.abs(cand - aim); fx = cand; }
         }
         if (fx != null) occupy(fx - 47, fx + 47, fy - 55, fy + 55);
       }
       if (fx == null && bandFree) {
         fx = rnd(60, W - 60);
-        fvx = (Math.random() < 0.5 ? -1 : 1) * rnd(0.05, 0.1);
+        fvx = (Math.random() < 0.5 ? -1 : 1) * lerp(0.07, 0.12, d) * rnd(0.8, 1.3);
         occupy(11, W - 11, fy - 55, fy + 55);
       }
       if (fx != null) {
