@@ -5,7 +5,7 @@
   "use strict";
 
   // Номер версії: той самий має стояти у version.json і в ?v= біля game.js в index.html
-  var VERSION = 5;
+  var VERSION = 6;
 
   // ---------- Світ ----------
   // Ширина світу стала, висота видимої частини залежить від екрана.
@@ -249,11 +249,15 @@
   }
 
   // ---------- Керування ----------
+  // Режим нахилу справді працює лише тоді, коли датчик щойно озивався. Якщо він
+  // мовчить понад секунду (нема датчика, не дали дозволу), повертаємось до кнопок —
+  // інакше гравець лишився б зовсім без керування.
+  var lastTilt = -1e9;
+  function tiltOn() { return useTilt && performance.now() - lastTilt < 1000; }
   function inputDir() {
     if (keyL !== keyR) return keyL ? -1 : 1;
-    if (pointerDir) return pointerDir;
-    if (useTilt) return tiltDir;
-    return 0;
+    if (tiltOn()) return tiltDir;          // у режимі нахилу дотик робота не веде
+    return pointerDir;
   }
 
   // ---------- Крок симуляції ----------
@@ -905,7 +909,7 @@
       c.font = "800 26px " + FONT;
       // пишемо на стійці: коли робот піде вгору, підказка поїде вниз разом із нею
       c.fillStyle = BLUE_DEEP;
-      var txt = isDesktop ? "← →  або  A / D" : (useTilt ? "нахиляй телефон" : "тримай кнопки внизу");
+      var txt = isDesktop ? "← →  або  A / D" : (tiltOn() ? "нахиляй телефон" : "тримай кнопки внизу");
       var hy = -S.camY + 96;
       if (hy < VH + 30) c.fillText(txt, W / 2, hy);
       c.restore();
@@ -918,6 +922,7 @@
   var PAD_R = 72;
   function drawPads() {
     if (mode !== "play" && mode !== "pause") return;
+    if (tiltOn()) return;                  // керуємо нахилом — кнопок на екрані нема
     var dir = (mode === "play" && !S.robot.dead) ? inputDir() : 0;
     var y = VH - 26 - PAD_R - safeBottom;
     for (var i = 0; i < 2; i++) {
@@ -1119,7 +1124,9 @@
   cv.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 
   window.addEventListener("deviceorientation", function (e) {
-    if (!useTilt || e.gamma == null) return;
+    if (e.gamma == null) return;
+    lastTilt = performance.now();
+    if (!useTilt) return;
     var ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
     var v = ang === 90 ? e.beta : (ang === 270 || ang === -90) ? -e.beta : ang === 180 ? -e.gamma : e.gamma;
     tiltDir = Math.abs(v) < 1.5 ? 0 : clamp(v / 18, -1, 1);
@@ -1193,6 +1200,7 @@
   window.__polytsia = {
     get S() { return S; },
     get mode() { return mode; },
+    get tiltOn() { return tiltOn(); },
     get view() { return { W: W, VH: VH, scale: scale, offX: offX, offY: offY }; },
     start: startGame,
     keys: function (l, r) { keyL = !!l; keyR = !!r; },
